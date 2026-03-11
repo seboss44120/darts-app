@@ -201,6 +201,14 @@
       font-family:'Bebas Neue';font-size:38px;text-align:center;letter-spacing:3px;
       margin-bottom:10px;color:var(--txt);min-height:62px;display:flex;align-items:center;justify-content:center}
     .numpad-display.will-bust{color:var(--danger)}
+    .numpad-display.invalid{color:var(--danger);border:1.5px solid var(--danger)}
+    .invalid-msg{
+      display:flex;align-items:center;gap:8px;
+      background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.35);
+      border-radius:8px;padding:8px 12px;margin-bottom:10px;
+      font-family:'Barlow Condensed';font-size:13px;font-weight:600;
+      color:var(--danger);letter-spacing:.5px;line-height:1.4;
+    }
     .numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
     .numpad-btn{background:var(--bg3);border:none;border-radius:10px;color:var(--txt);
       font-family:'Bebas Neue';font-size:24px;padding:16px 10px;cursor:pointer;transition:background .1s,transform .1s}
@@ -326,7 +334,8 @@ function App() {
   const [numpad,     setNumpad]     = useState("");
   const [mult,       setMult]       = useState(1);
   const [bust,       setBust]       = useState(null); // player index animating bust
-  const [throws501,  setThrows501]  = useState([]);   // confirmed throws this turn, max 3
+  const [throws501,   setThrows501]   = useState([]);   // confirmed throws this turn, max 3
+  const [inputErr501, setInputErr501] = useState("");   // validation error message
 
   // Winner state
   const [winner, setWinner] = useState(null);
@@ -348,7 +357,7 @@ function App() {
   const init501 = (n) => {
     setS501(Array(n).fill(501));
     setRounds(Array.from({length:n}, () => []));
-    setNumpad(""); setMult(1); setBust(null); setThrows501([]);
+    setNumpad(""); setMult(1); setBust(null); setThrows501([]); setInputErr501("");
   };
 
   const startGame = () => {
@@ -407,8 +416,11 @@ function App() {
   // turnTotal = sum of already confirmed throws this turn
   const turnTotal501 = throws501.reduce((a, t) => a + t.total, 0);
 
+  const VALID_DART_VALUES = new Set([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,25,50]);
+
   const numpadPress501 = (v) => {
-    if (throws501.length >= 3) return; // turn already full, wait for next player
+    if (throws501.length >= 3) return;
+    setInputErr501(""); // clear error on any key
     if (v === "del") {
       if (numpad.length > 0) {
         setNumpad(p => p.slice(0,-1));
@@ -420,14 +432,26 @@ function App() {
       return;
     }
     const n = (numpad + v).slice(0,3);
-    if (parseInt(n) > 180) return;
+    if (parseInt(n) > 60) return; // max single-dart base value is 50 (bull)
     setNumpad(n);
   };
 
   // Confirm one dart (the OK button)
   const confirmDart501 = () => {
     if (throws501.length >= 3) return;
-    const dartVal  = parseInt(numpad||"0");
+    const dartVal = parseInt(numpad||"0");
+
+    // ── Validate: only 1-20, 25, 50 are valid dart targets ──
+    if (!VALID_DART_VALUES.has(dartVal)) {
+      if (dartVal === 0) {
+        setInputErr501("Saisissez un nombre avant de valider.");
+      } else {
+        setInputErr501(`${dartVal} n'est pas une case valide. Les valeurs autorisées sont 1 à 20, 25 (demi-taureau) et 50 (taureau).`);
+      }
+      return; // stay on the same dart, let the player correct
+    }
+    setInputErr501("");
+
     const dartTot  = dartVal * mult;
     const projected = s501[curP] - turnTotal501 - dartTot;
 
@@ -455,7 +479,7 @@ function App() {
     if (isBust) {
       setBust(curP);
       rn[curP].push({ throws: throwList.map(t=>t.total), total, bust:true, rest:sc[curP] });
-      setRounds(rn); setThrows501([]); setNumpad(""); setMult(1);
+      setRounds(rn); setThrows501([]); setNumpad(""); setMult(1); setInputErr501("");
       setTimeout(() => setBust(null), 1300);
       setCurP(cp => (cp+1) % numPlayers);
       return;
@@ -463,7 +487,7 @@ function App() {
 
     sc[curP] = rem;
     rn[curP].push({ throws: throwList.map(t=>t.total), total, bust:false, rest:rem });
-    setS501(sc); setRounds(rn); setThrows501([]); setNumpad(""); setMult(1); setBust(null);
+    setS501(sc); setRounds(rn); setThrows501([]); setNumpad(""); setMult(1); setBust(null); setInputErr501("");
 
     if (rem === 0) {
       const validRounds = rn[curP].filter(r => !r.bust).length;
@@ -806,11 +830,18 @@ function App() {
 
             {/* Numpad display */}
             {!isTurnFull && (
-              <div className={`numpad-display ${willBust501?"will-bust":""}`}>
-                {numpad
-                  ? (willBust501?"BUST":`${numpad}${mult>1?` ×${mult} = ${parseInt(numpad)*mult}`:""}`)
-                  : "—"}
-              </div>
+              <>
+                {inputErr501 && (
+                  <div className="invalid-msg">
+                    ⚠️ {inputErr501}
+                  </div>
+                )}
+                <div className={`numpad-display ${willBust501?"will-bust":""} ${inputErr501?"invalid":""}`}>
+                  {numpad
+                    ? (willBust501?"BUST":`${numpad}${mult>1?` ×${mult} = ${parseInt(numpad)*mult}`:""}`)
+                    : "—"}
+                </div>
+              </>
             )}
 
             {/* Numpad */}
