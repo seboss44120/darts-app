@@ -209,6 +209,30 @@
     .numpad-btn.confirm{background:var(--accent);color:#000;grid-column:span 2}
     .numpad-btn.confirm:active{background:var(--accent2)}
 
+    /* 501 — throw slots */
+    .throw-slots-501{display:flex;gap:8px;margin-bottom:10px}
+    .throw-slot{
+      flex:1;background:var(--bg3);border-radius:10px;padding:8px 6px;
+      text-align:center;border:1.5px solid transparent;transition:all .2s;
+    }
+    .throw-slot.done{border-color:var(--accent);background:rgba(0,232,122,.06)}
+    .throw-slot.done.bust-slot{border-color:var(--danger);background:rgba(255,71,87,.06)}
+    .throw-slot.active-slot{border-color:var(--gold);animation:slotGlow 1.1s ease-in-out infinite}
+    @keyframes slotGlow{0%,100%{box-shadow:0 0 0 0 rgba(255,211,42,.4)}50%{box-shadow:0 0 0 4px rgba(255,211,42,0)}}
+    .throw-slot.empty-slot{opacity:.4}
+    .slot-label{font-family:'Barlow Condensed';font-size:10px;letter-spacing:1.5px;
+      text-transform:uppercase;color:var(--txt2);font-weight:600;margin-bottom:3px}
+    .slot-value{font-family:'Bebas Neue';font-size:22px;line-height:1}
+    .slot-value.done-val{color:var(--accent)}
+    .slot-value.bust-val{color:var(--danger)}
+    .slot-value.active-val{color:var(--gold)}
+    .slot-value.empty-val{color:var(--txt2)}
+    /* turn total preview */
+    .turn-total-row{display:flex;align-items:center;justify-content:space-between;
+      background:var(--bg3);border-radius:8px;padding:6px 12px;margin-bottom:10px;
+      font-family:'Barlow Condensed';font-size:13px;font-weight:700;color:var(--txt2);letter-spacing:1px}
+    .turn-total-val{font-family:'Bebas Neue';font-size:20px;color:var(--txt)}
+
     /* WINNER */
     .winner-screen{flex:1;display:flex;flex-direction:column;align-items:center;
       justify-content:center;padding:32px 20px;animation:fadeUp .4s ease;gap:14px}
@@ -297,11 +321,12 @@ function App() {
   const [throwsLeft, setThrowsLeft] = useState(MAX_THROWS);
 
   // 501 state
-  const [s501,   setS501]   = useState([]);
-  const [rounds, setRounds] = useState([]);
-  const [numpad, setNumpad] = useState("");
-  const [mult,   setMult]   = useState(1);
-  const [bust,   setBust]   = useState(null);
+  const [s501,       setS501]       = useState([]);
+  const [rounds,     setRounds]     = useState([]);   // history [{throws:[n,n,n], total, bust}]
+  const [numpad,     setNumpad]     = useState("");
+  const [mult,       setMult]       = useState(1);
+  const [bust,       setBust]       = useState(null); // player index animating bust
+  const [throws501,  setThrows501]  = useState([]);   // confirmed throws this turn, max 3
 
   // Winner state
   const [winner, setWinner] = useState(null);
@@ -323,7 +348,7 @@ function App() {
   const init501 = (n) => {
     setS501(Array(n).fill(501));
     setRounds(Array.from({length:n}, () => []));
-    setNumpad(""); setMult(1); setBust(null);
+    setNumpad(""); setMult(1); setBust(null); setThrows501([]);
   };
 
   const startGame = () => {
@@ -378,32 +403,67 @@ function App() {
     }
   };
 
-  // ── 501 ───────────────────────────────────────────────────────────────────
-  const numpadPress = (v) => {
-    if (v === "del") { setNumpad(p => p.slice(0,-1)); return; }
+  // ── 501 — numpad input ────────────────────────────────────────────────────
+  // turnTotal = sum of already confirmed throws this turn
+  const turnTotal501 = throws501.reduce((a, t) => a + t.total, 0);
+
+  const numpadPress501 = (v) => {
+    if (throws501.length >= 3) return; // turn already full, wait for next player
+    if (v === "del") {
+      if (numpad.length > 0) {
+        setNumpad(p => p.slice(0,-1));
+      } else if (throws501.length > 0) {
+        // undo last confirmed throw
+        setThrows501(t => t.slice(0,-1));
+        setMult(1);
+      }
+      return;
+    }
     const n = (numpad + v).slice(0,3);
     if (parseInt(n) > 180) return;
     setNumpad(n);
   };
 
-  const confirmScore = () => {
-    const pts = parseInt(numpad||"0") * mult;
-    if (isNaN(pts)) return;
-    const sc = [...s501];
-    const rn = rounds.map(r => [...r]);
-    const rem = sc[curP] - pts;
+  // Confirm one dart (the OK button)
+  const confirmDart501 = () => {
+    if (throws501.length >= 3) return;
+    const dartVal  = parseInt(numpad||"0");
+    const dartTot  = dartVal * mult;
+    const projected = s501[curP] - turnTotal501 - dartTot;
 
-    if (rem < 0) {
+    // Clear numpad & mult immediately
+    setNumpad(""); setMult(1);
+
+    const newThrows = [...throws501, { val:dartVal, mult, total:dartTot }];
+    setThrows501(newThrows);
+
+    // If bust or 3rd dart → apply turn
+    const newTurnTotal = turnTotal501 + dartTot;
+    if (projected < 0 || newThrows.length === 3) {
+      applyTurn501(newThrows, projected < 0);
+    }
+  };
+
+  // Finalise the turn (called after 3 darts OR "Joueur suivant")
+  const applyTurn501 = (throwList, forceBust) => {
+    const total = throwList.reduce((a, t) => a + t.total, 0);
+    const sc    = [...s501];
+    const rn    = rounds.map(r => [...r]);
+    const rem   = sc[curP] - total;
+    const isBust = forceBust || rem < 0;
+
+    if (isBust) {
       setBust(curP);
-      rn[curP].push({ pts, rest:sc[curP], bust:true });
-      setRounds(rn); setNumpad(""); setMult(1);
-      setTimeout(() => setBust(null), 1200);
-      setCurP(cp => (cp+1) % numPlayers); return;
+      rn[curP].push({ throws: throwList.map(t=>t.total), total, bust:true, rest:sc[curP] });
+      setRounds(rn); setThrows501([]); setNumpad(""); setMult(1);
+      setTimeout(() => setBust(null), 1300);
+      setCurP(cp => (cp+1) % numPlayers);
+      return;
     }
 
     sc[curP] = rem;
-    rn[curP].push({ pts, rest:rem });
-    setS501(sc); setRounds(rn); setNumpad(""); setMult(1); setBust(null);
+    rn[curP].push({ throws: throwList.map(t=>t.total), total, bust:false, rest:rem });
+    setS501(sc); setRounds(rn); setThrows501([]); setNumpad(""); setMult(1); setBust(null);
 
     if (rem === 0) {
       const validRounds = rn[curP].filter(r => !r.bust).length;
@@ -414,8 +474,14 @@ function App() {
     setCurP(cp => (cp+1) % numPlayers);
   };
 
-  const willBust = s501.length > 0 && numpad !== "" &&
-    (s501[curP] - parseInt(numpad||"0") * mult) < 0;
+  // Manual "next player" for 501
+  const nextPlayer501 = () => {
+    applyTurn501(throws501, false);
+  };
+
+  // Preview: will the current numpad entry cause a bust?
+  const previewTotal501 = turnTotal501 + parseInt(numpad||"0") * mult;
+  const willBust501 = s501.length > 0 && numpad !== "" && (s501[curP] - previewTotal501) < 0;
 
   // ─────────────────────────────────────────────────────────────────
   //  SCREENS
@@ -629,36 +695,52 @@ function App() {
     );
   }
 
-  if (screen === "s501") return (
+  if (screen === "s501") {
+    const pColor501 = PLAYER_COLORS[curP];
+    const dartsDone = throws501.length;
+    const dartsLeft = 3 - dartsDone;
+    const isTurnFull = dartsDone >= 3;
+
+    return (
     <div className="app-shell">
       <div className="screen" style={{padding:"12px 12px 0"}}>
         <div className="game-header">
           <span className="game-mode-badge">501</span>
           <div className="current-player-indicator">
-            <div className="pulse" style={{background:PLAYER_COLORS[curP]}}/>
-            <span style={{color:PLAYER_COLORS[curP],fontFamily:"Barlow Condensed",fontWeight:700}}>{names[curP]}</span>
+            <div className="pulse" style={{background:pColor501}}/>
+            <span style={{color:pColor501,fontFamily:"Barlow Condensed",fontWeight:700}}>{names[curP]}</span>
           </div>
         </div>
 
         <div className="scroll-area">
+          {/* Score cards */}
           <div style={{display:"grid",gap:8,
             gridTemplateColumns:numPlayers<=2?"1fr":"1fr 1fr",marginBottom:10}}>
             {Array.from({length:numPlayers},(_,pi) => {
               const rnd  = rounds[pi]??[];
               const last = rnd[rnd.length-1];
               const isBust = bust===pi;
+              // Show projected remaining for current player
+              const displayRem = (pi===curP && turnTotal501>0)
+                ? s501[pi] - turnTotal501
+                : s501[pi]??501;
               return (
                 <div key={pi} className="score501-card"
-                  style={{borderColor:curP===pi?PLAYER_COLORS[pi]+"60":"transparent",
+                  style={{borderColor:curP===pi?pColor501+"60":"transparent",
                     background:curP===pi?PLAYER_BG[pi]:"var(--bg2)"}}>
-                  <div className="score501-remaining" style={{color:PLAYER_COLORS[pi]}}>{s501[pi]??501}</div>
+                  <div className="score501-remaining" style={{color:PLAYER_COLORS[pi],
+                    opacity: pi===curP && turnTotal501>0 ? 0.7 : 1}}>
+                    {displayRem}
+                  </div>
                   <div className="score501-info">
                     <div className="score501-pname">{names[pi]}</div>
                     {curP===pi && !isBust && <span className="score501-turn-badge">● TOUR</span>}
                     {isBust && <span className="bust-badge">BUST !</span>}
                     {last && !isBust && (
                       <div className="score501-last">
-                        {last.bust?<span style={{color:"var(--danger)"}}>BUST</span>:<span>-{last.pts} pts</span>}
+                        {last.bust
+                          ? <span style={{color:"var(--danger)"}}>BUST (-{last.total})</span>
+                          : <span>-{last.total} pts</span>}
                         {" · "}{rnd.length} tours
                       </div>
                     )}
@@ -668,38 +750,104 @@ function App() {
             })}
           </div>
 
+          {/* Input panel */}
           <div className="input-panel">
-            <div className="input-panel-title">Score de {names[curP]}</div>
-            <div className="mult-row">
-              {[["×1",1],["×2 Double",2],["×3 Triple",3]].map(([lbl,v]) => (
-                <button key={v} className={`mult-btn ${mult===v?"active":""}`}
-                  onClick={() => setMult(v)}>{lbl}</button>
-              ))}
+            <div className="input-panel-title">
+              {isTurnFull
+                ? "Tour complet — passez au joueur suivant"
+                : `Fléchette ${dartsDone+1}/3 — ${names[curP]}`}
             </div>
-            <div className={`numpad-display ${willBust?"will-bust":""}`}>
-              {numpad
-                ? (willBust?"BUST":`${numpad}${mult>1?` ×${mult} = ${parseInt(numpad)*mult}`:""}`)
-                : "—"}
+
+            {/* 3 throw slots */}
+            <div className="throw-slots-501">
+              {[0,1,2].map(i => {
+                const th = throws501[i];
+                const isActive = i === dartsDone && !isTurnFull;
+                const isEmpty  = i > dartsDone || isTurnFull && !th;
+                return (
+                  <div key={i} className={`throw-slot ${th?"done":""}${isActive?" active-slot":""}${!th&&!isActive?" empty-slot":""}`}>
+                    <div className="slot-label">Flèche {i+1}</div>
+                    {th ? (
+                      <div className={`slot-value done-val`}>
+                        {th.mult>1?`${th.val}×${th.mult}`:th.total}
+                      </div>
+                    ) : isActive ? (
+                      <div className="slot-value active-val">
+                        {numpad ? (parseInt(numpad)*mult) : "?"}
+                      </div>
+                    ) : (
+                      <div className="slot-value empty-val">—</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <div className="numpad">
-              {["7","8","9","4","5","6","1","2","3"].map(n => (
-                <button key={n} className="numpad-btn" onClick={() => numpadPress(n)}>{n}</button>
-              ))}
-              <button className="numpad-btn del" onClick={() => numpadPress("del")}>⌫</button>
-              <button className="numpad-btn" onClick={() => numpadPress("0")}>0</button>
-              <button className="numpad-btn confirm" onClick={confirmScore}>✓ OK</button>
-            </div>
+
+            {/* Turn total preview */}
+            {(turnTotal501 > 0 || throws501.length > 0) && (
+              <div className="turn-total-row">
+                <span>Total du tour</span>
+                <span className="turn-total-val" style={{color: willBust501?"var(--danger)":pColor501}}>
+                  -{turnTotal501}{numpad && !willBust501 ? ` (→ -${previewTotal501})` : ""}
+                  {willBust501 ? " — BUST !" : ""}
+                </span>
+              </div>
+            )}
+
+            {/* Multiplier — hidden when turn is full */}
+            {!isTurnFull && (
+              <div className="mult-row">
+                {[["×1",1],["×2 Double",2],["×3 Triple",3]].map(([lbl,v]) => (
+                  <button key={v} className={`mult-btn ${mult===v?"active":""}`}
+                    onClick={() => setMult(v)}>{lbl}</button>
+                ))}
+              </div>
+            )}
+
+            {/* Numpad display */}
+            {!isTurnFull && (
+              <div className={`numpad-display ${willBust501?"will-bust":""}`}>
+                {numpad
+                  ? (willBust501?"BUST":`${numpad}${mult>1?` ×${mult} = ${parseInt(numpad)*mult}`:""}`)
+                  : "—"}
+              </div>
+            )}
+
+            {/* Numpad */}
+            {!isTurnFull && (
+              <div className="numpad">
+                {["7","8","9","4","5","6","1","2","3"].map(n => (
+                  <button key={n} className="numpad-btn" onClick={() => numpadPress501(n)}>{n}</button>
+                ))}
+                <button className="numpad-btn del" onClick={() => numpadPress501("del")} title="Effacer / Annuler">⌫</button>
+                <button className="numpad-btn" onClick={() => numpadPress501("0")}>0</button>
+                <button className="numpad-btn confirm" onClick={confirmDart501}>✓ OK</button>
+              </div>
+            )}
+
+            {/* Hint when all 3 done */}
+            {isTurnFull && (
+              <div style={{textAlign:"center",color:"var(--txt2)",fontFamily:"Barlow Condensed",
+                fontSize:14,letterSpacing:1,padding:"8px 0"}}>
+                Appuyez sur <strong style={{color:"var(--accent)"}}>Joueur suivant →</strong> pour continuer
+              </div>
+            )}
           </div>
-          <div style={{height:70}}/>
+          <div style={{height:80}}/>
         </div>
 
+        {/* Bottom bar — 501 now also has Next Player */}
         <div className="bottom-bar">
-          <button className="btn-danger" style={{flex:1}} onClick={() => { init501(numPlayers); setCurP(0); }}>Réinit.</button>
-          <button className="btn-secondary" style={{flex:1}} onClick={() => setScreen("home")}>Quitter</button>
+          <button className="btn-danger" style={{flex:1,fontSize:13,padding:"10px 6px"}}
+            onClick={() => { init501(numPlayers); setCurP(0); }}>Réinit.</button>
+          <button className="btn-secondary" style={{flex:1,fontSize:13,padding:"10px 6px"}}
+            onClick={() => setScreen("home")}>Quitter</button>
+          <button className="btn-next" onClick={nextPlayer501}>Joueur suivant →</button>
         </div>
       </div>
     </div>
-  );
+  );}
+
 
   if (screen === "winner") return (
     <div className="app-shell">
