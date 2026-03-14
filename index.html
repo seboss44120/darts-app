@@ -265,6 +265,33 @@
     .winner-stat-val{font-family:'Bebas Neue';font-size:36px}
     .winner-stat-label{font-size:11px;color:var(--txt2);letter-spacing:2px;text-transform:uppercase}
 
+    /* QR MODAL */
+    .qr-overlay{
+      position:fixed;inset:0;background:rgba(0,0,0,.75);
+      display:flex;align-items:center;justify-content:center;
+      z-index:999;animation:fadeUp .2s ease;padding:24px;
+    }
+    .qr-modal{
+      background:var(--bg1);border-radius:20px;padding:28px 24px;
+      display:flex;flex-direction:column;align-items:center;gap:16px;
+      max-width:340px;width:100%;border:1px solid var(--bg3);
+    }
+    .qr-title{font-family:'Bebas Neue';font-size:26px;letter-spacing:3px;color:var(--txt)}
+    .qr-sub{font-family:'Barlow Condensed';font-size:13px;color:var(--txt2);
+      letter-spacing:1px;text-align:center;line-height:1.5}
+    .qr-box{background:#fff;border-radius:12px;padding:14px;display:flex;
+      align-items:center;justify-content:center}
+    .qr-url{font-family:'Barlow Condensed';font-size:12px;color:var(--accent);
+      letter-spacing:.5px;word-break:break-all;text-align:center;
+      background:var(--bg2);border-radius:8px;padding:8px 12px;width:100%}
+    .btn-share{
+      background:var(--bg3);color:var(--txt);border:none;border-radius:var(--radius);
+      font-family:'Barlow Condensed';font-size:14px;font-weight:700;letter-spacing:1.5px;
+      padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:6px;
+      text-transform:uppercase;
+    }
+    .btn-share:active{background:var(--bg2)}
+
     /* BOTTOM BAR */
     .bottom-bar{padding:10px 16px 16px;display:flex;gap:8px;
       background:linear-gradient(to top,var(--bg1) 80%,transparent);position:sticky;bottom:0}
@@ -276,8 +303,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script type="text/babel">
-const { useState } = React;
+const { useState, useEffect, useRef } = React;
 
 const CRICKET_TARGETS     = [20,19,18,17,16,15,"Bull"];
 const PLAYER_COLORS       = ["#00e87a","#ff6b6b","#4ecdc4","#ffd32a"];
@@ -300,7 +328,59 @@ const BullseyeSVG = () => (
   </svg>
 );
 
-// Throw counter: 3 dart pips, consumed left→right
+// QR Code modal component
+const QRModal = ({ onClose }) => {
+  const qrRef  = useRef(null);
+  const appUrl = window.location.href.split('?')[0].split('#')[0];
+
+  useEffect(() => {
+    if (!qrRef.current) return;
+    qrRef.current.innerHTML = "";
+    new QRCode(qrRef.current, {
+      text:           appUrl,
+      width:          200,
+      height:         200,
+      colorDark:      "#000000",
+      colorLight:     "#ffffff",
+      correctLevel:   QRCode.CorrectLevel.H,
+    });
+  }, []);
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title:"Darts Scoreboard Pro", url: appUrl });
+      } catch {}
+    } else {
+      try { await navigator.clipboard.writeText(appUrl); alert("Lien copié !"); } catch {}
+    }
+  };
+
+  return (
+    <div className="qr-overlay" onClick={onClose}>
+      <div className="qr-modal" onClick={e => e.stopPropagation()}>
+        <div className="qr-title">🎯 PARTAGER</div>
+        <div className="qr-sub">
+          Scannez ce QR code pour ouvrir l'application et l'ajouter à votre écran d'accueil
+        </div>
+        <div className="qr-box">
+          <div ref={qrRef}/>
+        </div>
+        <div className="qr-url">{appUrl}</div>
+        <div style={{display:"flex",gap:10,width:"100%"}}>
+          <button className="btn-share" style={{flex:1,justifyContent:"center"}}
+            onClick={handleShare}>
+            📤 Partager le lien
+          </button>
+          <button className="btn-share" style={{flex:1,justifyContent:"center"}}
+            onClick={onClose}>
+            ✕ Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 const ThrowBar = ({ throwsLeft, playerColor }) => {
   // thrown = MAX_THROWS - throwsLeft pips have been used
   const thrown = MAX_THROWS - throwsLeft;
@@ -333,6 +413,7 @@ function App() {
   const [numPlayers, setNumPlayers] = useState(2);
   const [names,      setNames]      = useState(["Joueur 1","Joueur 2","Joueur 3","Joueur 4"]);
   const [curP,       setCurP]       = useState(0);
+  const [showQR,     setShowQR]     = useState(false);
   const [history,    setHistory]    = useState(() => {
     try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; }
   });
@@ -551,6 +632,7 @@ function App() {
 
   if (screen === "home") return (
     <div className="app-shell">
+      {showQR && <QRModal onClose={() => setShowQR(false)}/>}
       <div className="screen">
         <div className="home-header">
           <BullseyeSVG/>
@@ -580,6 +662,15 @@ function App() {
         </div>
 
         <button className="btn-primary" onClick={() => setScreen("setup")}>COMMENCER →</button>
+
+        {/* Share via QR code */}
+        <button className="btn-share"
+          style={{width:"100%",justifyContent:"center",marginTop:10,
+            background:"var(--bg2)",border:"1px solid var(--bg3)",borderRadius:"var(--radius)",
+            padding:"12px 20px",fontSize:15}}
+          onClick={() => setShowQR(true)}>
+          📲 Partager l'application (QR code)
+        </button>
 
         {history.length > 0 && (
           <div className="history-section">
